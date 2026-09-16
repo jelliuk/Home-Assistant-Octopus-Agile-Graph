@@ -6,7 +6,7 @@ It shows the current and next electricity price, a rolling 24-hour price graph, 
 
 Power Down periods are automatically shown as purple bands on the graph, with additional highlighting when the current or next tariff slot falls inside a joined session.
 
-![Dark mode](screenshots/dark.png)
+![Dark mode](dark.png)
 
 ---
 
