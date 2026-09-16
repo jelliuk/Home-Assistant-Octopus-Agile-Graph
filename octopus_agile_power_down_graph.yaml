@@ -1,0 +1,1441 @@
+type: custom:config-template-card
+
+entities:
+  # Replace these five entity IDs with your own.
+  - sensor.octopus_energy_electricity_your_mpan_your_meter_serial_current_rate
+  - sensor.octopus_energy_electricity_your_mpan_your_meter_serial_next_rate
+  - event.octopus_energy_electricity_your_mpan_your_meter_serial_current_day_rates
+  - event.octopus_energy_electricity_your_mpan_your_meter_serial_next_day_rates
+  - event.octopus_energy_your_account_id_octoplus_power_down_events
+
+variables:
+
+  # =============================================================
+  # THEME COLOURS
+  # =============================================================
+
+  APPLE_BLUE: |
+    this.hass.themes.darkMode
+      ? '#0A84FF'
+      : '#007AFF'
+
+  APPLE_CYAN: |
+    this.hass.themes.darkMode
+      ? '#64D2FF'
+      : '#32ADE6'
+
+  APPLE_GREEN: |
+    this.hass.themes.darkMode
+      ? '#30D158'
+      : '#34C759'
+
+  APPLE_ORANGE: |
+    this.hass.themes.darkMode
+      ? '#FF9F0A'
+      : '#FF9500'
+
+  APPLE_RED: |
+    this.hass.themes.darkMode
+      ? '#FF453A'
+      : '#FF3B30'
+
+  APPLE_PURPLE: |
+    this.hass.themes.darkMode
+      ? '#BF5AF2'
+      : '#AF52DE'
+
+  POWER_DOWN_OPACITY: |
+    this.hass.themes.darkMode
+      ? 0.14
+      : 0.09
+
+
+  # =============================================================
+  # POWER DOWN SESSION SHOWN ON GRAPH
+  # =============================================================
+
+  POWER_DOWN_SESSION: |
+    (() => {
+      const entity =
+        states[
+          'event.octopus_energy_your_account_id_octoplus_power_down_events'
+        ];
+
+      const joinedEvents =
+        Array.isArray(entity?.attributes?.joined_events)
+          ? entity.attributes.joined_events
+          : [];
+
+      const graphStartDate =
+        new Date();
+
+      graphStartDate.setMinutes(
+        0,
+        0,
+        0
+      );
+
+      const graphStart =
+        graphStartDate.getTime();
+
+      const graphEnd =
+        graphStart +
+        (24 * 60 * 60 * 1000);
+
+      const sessions =
+        joinedEvents
+          .map((event) => {
+            const start =
+              new Date(
+                event.start
+              ).getTime();
+
+            let end =
+              new Date(
+                event.end
+              ).getTime();
+
+            if (
+              !Number.isFinite(end) &&
+              Number.isFinite(start)
+            ) {
+              const duration =
+                Number(
+                  event.duration_in_minutes
+                );
+
+              if (
+                Number.isFinite(duration)
+              ) {
+                end =
+                  start +
+                  (
+                    duration *
+                    60 *
+                    1000
+                  );
+              }
+            }
+
+            return {
+              start,
+              end
+            };
+          })
+          .filter((session) =>
+            Number.isFinite(session.start) &&
+            Number.isFinite(session.end)
+          )
+          .filter((session) =>
+            session.end >= graphStart &&
+            session.start <= graphEnd
+          )
+          .sort(
+            (a, b) =>
+              a.start - b.start
+          );
+
+      if (!sessions.length) {
+        return {
+          visible: false,
+          start: 0,
+          end: 0
+        };
+      }
+
+      return {
+        visible: true,
+        start: sessions[0].start,
+        end: sessions[0].end
+      };
+    })()
+
+
+  # =============================================================
+  # IS POWER DOWN ACTIVE RIGHT NOW?
+  # =============================================================
+
+  POWER_DOWN_ACTIVE: |
+    (() => {
+      const entity =
+        states[
+          'event.octopus_energy_your_account_id_octoplus_power_down_events'
+        ];
+
+      const joinedEvents =
+        Array.isArray(entity?.attributes?.joined_events)
+          ? entity.attributes.joined_events
+          : [];
+
+      const now =
+        Date.now();
+
+      return joinedEvents.some((event) => {
+        const start =
+          new Date(
+            event.start
+          ).getTime();
+
+        let end =
+          new Date(
+            event.end
+          ).getTime();
+
+        if (
+          !Number.isFinite(end) &&
+          Number.isFinite(start)
+        ) {
+          const duration =
+            Number(
+              event.duration_in_minutes
+            );
+
+          if (
+            Number.isFinite(duration)
+          ) {
+            end =
+              start +
+              (
+                duration *
+                60 *
+                1000
+              );
+          }
+        }
+
+        return (
+          Number.isFinite(start) &&
+          Number.isFinite(end) &&
+          now >= start &&
+          now < end
+        );
+      });
+    })()
+
+
+  # =============================================================
+  # IS THE NEXT HALF-HOUR SLOT INSIDE POWER DOWN?
+  # =============================================================
+
+  NEXT_POWER_DOWN: |
+    (() => {
+      const entity =
+        states[
+          'event.octopus_energy_your_account_id_octoplus_power_down_events'
+        ];
+
+      const joinedEvents =
+        Array.isArray(entity?.attributes?.joined_events)
+          ? entity.attributes.joined_events
+          : [];
+
+      const slotLength =
+        30 * 60 * 1000;
+
+      const nextStart =
+        (
+          Math.floor(
+            Date.now() / slotLength
+          ) + 1
+        ) * slotLength;
+
+      const nextEnd =
+        nextStart + slotLength;
+
+      return joinedEvents.some((event) => {
+        const sessionStart =
+          new Date(
+            event.start
+          ).getTime();
+
+        let sessionEnd =
+          new Date(
+            event.end
+          ).getTime();
+
+        if (
+          !Number.isFinite(sessionEnd) &&
+          Number.isFinite(sessionStart)
+        ) {
+          const duration =
+            Number(
+              event.duration_in_minutes
+            );
+
+          if (
+            Number.isFinite(duration)
+          ) {
+            sessionEnd =
+              sessionStart +
+              (
+                duration *
+                60 *
+                1000
+              );
+          }
+        }
+
+        if (
+          !Number.isFinite(sessionStart) ||
+          !Number.isFinite(sessionEnd)
+        ) {
+          return false;
+        }
+
+        return (
+          nextStart < sessionEnd &&
+          nextEnd > sessionStart
+        );
+      });
+    })()
+
+
+  # =============================================================
+  # CURRENT PRICE COLOUR
+  # =============================================================
+
+  CURRENT_COLOR: |
+    (() => {
+      const raw =
+        Number(
+          states[
+            'sensor.octopus_energy_electricity_your_mpan_your_meter_serial_current_rate'
+          ]?.state
+        );
+
+      const price =
+        Number.isFinite(raw)
+          ? raw * 100
+          : 0;
+
+      const dark =
+        this.hass.themes.darkMode;
+
+      const BLUE =
+        dark
+          ? '#0A84FF'
+          : '#007AFF';
+
+      const CYAN =
+        dark
+          ? '#64D2FF'
+          : '#32ADE6';
+
+      const GREEN =
+        dark
+          ? '#30D158'
+          : '#34C759';
+
+      const ORANGE =
+        dark
+          ? '#FF9F0A'
+          : '#FF9500';
+
+      const RED =
+        dark
+          ? '#FF453A'
+          : '#FF3B30';
+
+      const clamp =
+        (value, min, max) =>
+          Math.min(
+            Math.max(
+              value,
+              min
+            ),
+            max
+          );
+
+      const mix =
+        (a, b, t) => {
+          const ah =
+            parseInt(
+              a.slice(1),
+              16
+            );
+
+          const bh =
+            parseInt(
+              b.slice(1),
+              16
+            );
+
+          const ar =
+            (ah >> 16) & 255;
+
+          const ag =
+            (ah >> 8) & 255;
+
+          const ab =
+            ah & 255;
+
+          const br =
+            (bh >> 16) & 255;
+
+          const bg =
+            (bh >> 8) & 255;
+
+          const bb =
+            bh & 255;
+
+          const r =
+            Math.round(
+              ar +
+              (br - ar) *
+              t
+            );
+
+          const g =
+            Math.round(
+              ag +
+              (bg - ag) *
+              t
+            );
+
+          const bl =
+            Math.round(
+              ab +
+              (bb - ab) *
+              t
+            );
+
+          return (
+            '#' +
+            (
+              (1 << 24) +
+              (r << 16) +
+              (g << 8) +
+              bl
+            )
+              .toString(16)
+              .slice(1)
+          );
+        };
+
+      if (price < 0) {
+        const t =
+          clamp(
+            Math.abs(price) / 7,
+            0,
+            1
+          );
+
+        return mix(
+          CYAN,
+          BLUE,
+          t
+        );
+      }
+
+      if (price < 5) {
+        return GREEN;
+      }
+
+      if (price < 20) {
+        const t =
+          clamp(
+            (price - 5) / 15,
+            0,
+            1
+          );
+
+        return mix(
+          GREEN,
+          ORANGE,
+          t
+        );
+      }
+
+      if (price < 30) {
+        const t =
+          clamp(
+            (price - 20) / 10,
+            0,
+            1
+          );
+
+        return mix(
+          ORANGE,
+          RED,
+          t
+        );
+      }
+
+      return RED;
+    })()
+
+
+  # =============================================================
+  # NEXT PRICE COLOUR
+  # =============================================================
+
+  NEXT_COLOR: |
+    (() => {
+      const raw =
+        Number(
+          states[
+            'sensor.octopus_energy_electricity_your_mpan_your_meter_serial_next_rate'
+          ]?.state
+        );
+
+      const price =
+        Number.isFinite(raw)
+          ? raw * 100
+          : 0;
+
+      const dark =
+        this.hass.themes.darkMode;
+
+      const BLUE =
+        dark
+          ? '#0A84FF'
+          : '#007AFF';
+
+      const CYAN =
+        dark
+          ? '#64D2FF'
+          : '#32ADE6';
+
+      const GREEN =
+        dark
+          ? '#30D158'
+          : '#34C759';
+
+      const ORANGE =
+        dark
+          ? '#FF9F0A'
+          : '#FF9500';
+
+      const RED =
+        dark
+          ? '#FF453A'
+          : '#FF3B30';
+
+      const clamp =
+        (value, min, max) =>
+          Math.min(
+            Math.max(
+              value,
+              min
+            ),
+            max
+          );
+
+      const mix =
+        (a, b, t) => {
+          const ah =
+            parseInt(
+              a.slice(1),
+              16
+            );
+
+          const bh =
+            parseInt(
+              b.slice(1),
+              16
+            );
+
+          const ar =
+            (ah >> 16) & 255;
+
+          const ag =
+            (ah >> 8) & 255;
+
+          const ab =
+            ah & 255;
+
+          const br =
+            (bh >> 16) & 255;
+
+          const bg =
+            (bh >> 8) & 255;
+
+          const bb =
+            bh & 255;
+
+          const r =
+            Math.round(
+              ar +
+              (br - ar) *
+              t
+            );
+
+          const g =
+            Math.round(
+              ag +
+              (bg - ag) *
+              t
+            );
+
+          const bl =
+            Math.round(
+              ab +
+              (bb - ab) *
+              t
+            );
+
+          return (
+            '#' +
+            (
+              (1 << 24) +
+              (r << 16) +
+              (g << 8) +
+              bl
+            )
+              .toString(16)
+              .slice(1)
+          );
+        };
+
+      if (price < 0) {
+        const t =
+          clamp(
+            Math.abs(price) / 7,
+            0,
+            1
+          );
+
+        return mix(
+          CYAN,
+          BLUE,
+          t
+        );
+      }
+
+      if (price < 5) {
+        return GREEN;
+      }
+
+      if (price < 20) {
+        const t =
+          clamp(
+            (price - 5) / 15,
+            0,
+            1
+          );
+
+        return mix(
+          GREEN,
+          ORANGE,
+          t
+        );
+      }
+
+      if (price < 30) {
+        const t =
+          clamp(
+            (price - 20) / 10,
+            0,
+            1
+          );
+
+        return mix(
+          ORANGE,
+          RED,
+          t
+        );
+      }
+
+      return RED;
+    })()
+
+
+  # =============================================================
+  # CURRENT HEADER LABEL
+  # =============================================================
+
+  CURRENT_LABEL: |
+    (() => {
+      const rateEntity =
+        states[
+          'sensor.octopus_energy_electricity_your_mpan_your_meter_serial_current_rate'
+        ];
+
+      const raw =
+        Number(
+          rateEntity?.state
+        );
+
+      const price =
+        Number.isFinite(raw)
+          ? raw * 100
+          : 0;
+
+      const validFrom =
+        rateEntity?.attributes?.rate?.valid_from ??
+        rateEntity?.attributes?.valid_from;
+
+      let currentDate =
+        validFrom
+          ? new Date(validFrom)
+          : null;
+
+      if (
+        !currentDate ||
+        Number.isNaN(
+          currentDate.getTime()
+        )
+      ) {
+        currentDate =
+          new Date();
+
+        currentDate.setSeconds(
+          0,
+          0
+        );
+
+        currentDate.setMinutes(
+          currentDate.getMinutes() < 30
+            ? 0
+            : 30
+        );
+      }
+
+      const currentTime =
+        currentDate.toLocaleTimeString(
+          'en-GB',
+          {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          }
+        );
+
+      const powerDownEntity =
+        states[
+          'event.octopus_energy_your_account_id_octoplus_power_down_events'
+        ];
+
+      const joinedEvents =
+        Array.isArray(
+          powerDownEntity?.attributes?.joined_events
+        )
+          ? powerDownEntity.attributes.joined_events
+          : [];
+
+      const now =
+        Date.now();
+
+      const powerDownActive =
+        joinedEvents.some((event) => {
+          const start =
+            new Date(
+              event.start
+            ).getTime();
+
+          let end =
+            new Date(
+              event.end
+            ).getTime();
+
+          if (
+            !Number.isFinite(end) &&
+            Number.isFinite(start)
+          ) {
+            const duration =
+              Number(
+                event.duration_in_minutes
+              );
+
+            if (
+              Number.isFinite(duration)
+            ) {
+              end =
+                start +
+                (
+                  duration *
+                  60 *
+                  1000
+                );
+            }
+          }
+
+          return (
+            Number.isFinite(start) &&
+            Number.isFinite(end) &&
+            now >= start &&
+            now < end
+          );
+        });
+
+      if (powerDownActive) {
+        return 'NOW · ' + currentTime + ' · POWER DOWN';
+      }
+
+      if (price <= 0) {
+        return 'NOW · ' + currentTime + ' · FREE';
+      }
+
+      return 'NOW · ' + currentTime;
+    })()
+
+
+  # =============================================================
+  # NEXT RATE TIME
+  # =============================================================
+
+  NEXT_TIME: |
+    (() => {
+      const entity =
+        states[
+          'sensor.octopus_energy_electricity_your_mpan_your_meter_serial_next_rate'
+        ];
+
+      const raw =
+        entity?.attributes?.rate?.valid_from ??
+        entity?.attributes?.valid_from;
+
+      let date =
+        raw
+          ? new Date(raw)
+          : null;
+
+      if (
+        !date ||
+        Number.isNaN(
+          date.getTime()
+        )
+      ) {
+        date =
+          new Date();
+
+        date.setSeconds(
+          0,
+          0
+        );
+
+        date.setMinutes(
+          date.getMinutes() < 30
+            ? 30
+            : 60
+        );
+      }
+
+      return date.toLocaleTimeString(
+        'en-GB',
+        {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        }
+      );
+    })()
+
+
+card:
+  type: custom:apexcharts-card
+
+  show:
+    loading: false
+
+  update_interval: 1min
+
+  graph_span: 24h
+
+  span:
+    start: hour
+
+  experimental:
+    color_threshold: true
+
+  header:
+    show: true
+    show_states: true
+    colorize_states: true
+    standard_format: false
+
+  yaxis:
+    - min: auto
+      max: '|+3|'
+      decimals: 0
+
+      apex_config:
+        tickAmount: 6
+
+        labels:
+          formatter: |
+            EVAL:function(value) {
+              return Math.round(value) + 'p';
+            }
+
+  series:
+
+    # Current rate - header only
+    - entity: sensor.octopus_energy_electricity_your_mpan_your_meter_serial_current_rate
+
+      name: ${CURRENT_LABEL}
+
+      unit: p/kWh
+
+      float_precision: 2
+
+      transform: |
+        return Number(x) * 100;
+
+      color: "${POWER_DOWN_ACTIVE ? APPLE_PURPLE : CURRENT_COLOR}"
+
+      show:
+        in_header: true
+        in_chart: false
+        in_legend: false
+        legend_value: false
+        name_in_header: true
+
+
+    # Next rate - header only
+    - entity: sensor.octopus_energy_electricity_your_mpan_your_meter_serial_next_rate
+
+      name: "${NEXT_POWER_DOWN ? 'NEXT · ' + NEXT_TIME + ' · POWER DOWN' : 'NEXT · ' + NEXT_TIME}"
+
+      unit: p/kWh
+
+      float_precision: 2
+
+      transform: |
+        return Number(x) * 100;
+
+      color: "${NEXT_POWER_DOWN ? APPLE_PURPLE : NEXT_COLOR}"
+
+      show:
+        in_header: true
+        in_chart: false
+        in_legend: false
+        legend_value: false
+        name_in_header: true
+
+
+    # Price area
+    - entity: >-
+        event.octopus_energy_electricity_your_mpan_your_meter_serial_current_day_rates
+
+      name: Price
+
+      unit: p/kWh
+
+      float_precision: 2
+
+      type: area
+
+      curve: straight
+
+      stroke_width: 0
+
+      extend_to: false
+
+      show:
+        in_header: false
+        in_legend: false
+        legend_value: false
+
+      data_generator: |
+        const currentEntity =
+          hass.states[
+            'event.octopus_energy_electricity_your_mpan_your_meter_serial_current_day_rates'
+          ];
+
+        const nextEntity =
+          hass.states[
+            'event.octopus_energy_electricity_your_mpan_your_meter_serial_next_day_rates'
+          ];
+
+        const currentRates =
+          Array.isArray(
+            currentEntity?.attributes?.rates
+          )
+            ? currentEntity.attributes.rates
+            : [];
+
+        const nextRates =
+          Array.isArray(
+            nextEntity?.attributes?.rates
+          )
+            ? nextEntity.attributes.rates
+            : [];
+
+        const merged = [
+          ...currentRates,
+          ...nextRates
+        ];
+
+        if (!merged.length) {
+          return [];
+        }
+
+        const byStart =
+          new Map();
+
+        merged.forEach((entry) => {
+          const startTime =
+            new Date(
+              entry.start
+            ).getTime();
+
+          const endTime =
+            new Date(
+              entry.end
+            ).getTime();
+
+          const value =
+            Number(
+              entry.value_inc_vat
+            ) * 100;
+
+          if (
+            Number.isFinite(startTime) &&
+            Number.isFinite(value)
+          ) {
+            byStart.set(
+              startTime,
+              {
+                start: startTime,
+
+                end:
+                  Number.isFinite(endTime)
+                    ? endTime
+                    : startTime +
+                      (
+                        30 *
+                        60 *
+                        1000
+                      ),
+
+                value
+              }
+            );
+          }
+        });
+
+        const rates =
+          Array
+            .from(
+              byStart.values()
+            )
+            .sort(
+              (a, b) =>
+                a.start - b.start
+            );
+
+        if (!rates.length) {
+          return [];
+        }
+
+        const data =
+          rates.map((entry) => {
+            return [
+              entry.start,
+              entry.value
+            ];
+          });
+
+        const last =
+          rates[
+            rates.length - 1
+          ];
+
+        data.push([
+          last.end,
+          last.value
+        ]);
+
+        return data;
+
+      color_threshold:
+        - value: -7
+          color: ${APPLE_BLUE}
+          opacity: 0.16
+
+        - value: -0.001
+          color: ${APPLE_CYAN}
+          opacity: 0.16
+
+        - value: 0
+          color: ${APPLE_GREEN}
+          opacity: 0.16
+
+        - value: 5
+          color: ${APPLE_GREEN}
+          opacity: 0.16
+
+        - value: 20
+          color: ${APPLE_ORANGE}
+          opacity: 0.16
+
+        - value: 30
+          color: ${APPLE_RED}
+          opacity: 0.16
+
+
+    # Current-day price line
+    - entity: >-
+        event.octopus_energy_electricity_your_mpan_your_meter_serial_current_day_rates
+
+      name: Price
+
+      type: line
+
+      curve: straight
+
+      stroke_width: 3
+
+      extend_to: false
+
+      show:
+        in_header: false
+        in_legend: false
+        legend_value: false
+
+      data_generator: |
+        const rates =
+          Array.isArray(
+            entity.attributes.rates
+          )
+            ? entity.attributes.rates
+            : [];
+
+        if (!rates.length) {
+          return [];
+        }
+
+        const data =
+          rates.map((entry) => {
+            return [
+              new Date(
+                entry.start
+              ).getTime(),
+
+              Number(
+                entry.value_inc_vat
+              ) * 100
+            ];
+          });
+
+        const last =
+          rates[
+            rates.length - 1
+          ];
+
+        data.push([
+          new Date(
+            last.end
+          ).getTime(),
+
+          Number(
+            last.value_inc_vat
+          ) * 100
+        ]);
+
+        return data;
+
+      color_threshold:
+        - value: -7
+          color: ${APPLE_BLUE}
+
+        - value: -0.001
+          color: ${APPLE_CYAN}
+
+        - value: 0
+          color: ${APPLE_GREEN}
+
+        - value: 5
+          color: ${APPLE_GREEN}
+
+        - value: 20
+          color: ${APPLE_ORANGE}
+
+        - value: 30
+          color: ${APPLE_RED}
+
+
+    # Next-day price line
+    - entity: >-
+        event.octopus_energy_electricity_your_mpan_your_meter_serial_next_day_rates
+
+      name: Price
+
+      type: line
+
+      curve: straight
+
+      stroke_width: 3
+
+      extend_to: false
+
+      show:
+        in_header: false
+        in_legend: false
+        legend_value: false
+
+      data_generator: |
+        const rates =
+          Array.isArray(
+            entity.attributes.rates
+          )
+            ? entity.attributes.rates
+            : [];
+
+        if (!rates.length) {
+          return [];
+        }
+
+        const data =
+          rates.map((entry) => {
+            return [
+              new Date(
+                entry.start
+              ).getTime(),
+
+              Number(
+                entry.value_inc_vat
+              ) * 100
+            ];
+          });
+
+        const last =
+          rates[
+            rates.length - 1
+          ];
+
+        data.push([
+          new Date(
+            last.end
+          ).getTime(),
+
+          Number(
+            last.value_inc_vat
+          ) * 100
+        ]);
+
+        return data;
+
+      color_threshold:
+        - value: -7
+          color: ${APPLE_BLUE}
+
+        - value: -0.001
+          color: ${APPLE_CYAN}
+
+        - value: 0
+          color: ${APPLE_GREEN}
+
+        - value: 5
+          color: ${APPLE_GREEN}
+
+        - value: 20
+          color: ${APPLE_ORANGE}
+
+        - value: 30
+          color: ${APPLE_RED}
+
+
+  apex_config:
+
+    chart:
+      height: 190px
+      background: transparent
+
+      toolbar:
+        show: false
+
+    legend:
+      show: false
+
+    dataLabels:
+      enabled: false
+
+    markers:
+      size: 0
+
+      hover:
+        size: 0
+        sizeOffset: 0
+
+    grid:
+      borderColor: rgba(120, 120, 128, 0.18)
+
+      strokeDashArray: 4
+
+      padding:
+        left: 12
+        right: 4
+        top: 2
+        bottom: 0
+
+    xaxis:
+      type: datetime
+
+      axisBorder:
+        show: false
+
+      axisTicks:
+        show: false
+
+      tickAmount: 8
+
+      labels:
+        datetimeUTC: false
+        format: HH:mm
+
+        style:
+          fontSize: 11px
+          fontWeight: 400
+
+      tooltip:
+        enabled: false
+
+    tooltip:
+      enabledOnSeries:
+        - 0
+
+      marker:
+        show: false
+
+      x:
+        format: HH:mm
+
+    annotations:
+      xaxis:
+
+        # Power Down window
+        - x: ${POWER_DOWN_SESSION.start}
+          x2: ${POWER_DOWN_SESSION.end}
+
+          borderColor: ${APPLE_PURPLE}
+          fillColor: ${APPLE_PURPLE}
+          opacity: ${POWER_DOWN_OPACITY}
+
+          label:
+            text: "${POWER_DOWN_SESSION.visible ? 'POWER DOWN' : ''}"
+            orientation: horizontal
+            position: top
+            offsetY: -26
+            borderColor: ${APPLE_PURPLE}
+
+            style:
+              background: ${APPLE_PURPLE}
+              color: '#FFFFFF'
+              fontSize: 9px
+              fontWeight: 600
+
+        # Power Down start boundary
+        - x: ${POWER_DOWN_SESSION.start}
+          borderColor: ${APPLE_PURPLE}
+          strokeDashArray: 0
+
+        # Power Down end boundary
+        - x: ${POWER_DOWN_SESSION.end}
+          borderColor: ${APPLE_PURPLE}
+          strokeDashArray: 0
+
+        # Current time marker
+        - x: EVAL:Date.now()
+          borderColor: ${CURRENT_COLOR}
+          strokeDashArray: 0
+
+          label:
+            text: NOW
+            orientation: horizontal
+            offsetX: 20
+            offsetY: -8
+            borderColor: ${CURRENT_COLOR}
+
+            style:
+              background: ${CURRENT_COLOR}
+              color: '#FFFFFF'
+              fontSize: 10px
+              fontWeight: 600
+
+
+  # card-mod is optional, but this section provides the compact
+  # two-column header used in the screenshots.
+  card_mod:
+    style: |
+      #header {
+        padding: 10px 16px 0 16px !important;
+        min-height: 0 !important;
+      }
+
+      #header__states {
+        width: 100% !important;
+        margin: 0 !important;
+
+        display: flex !important;
+        align-items: flex-start !important;
+        justify-content: space-between !important;
+
+        flex-wrap: nowrap !important;
+      }
+
+      #states__state {
+        margin: 0 !important;
+
+        display: flex !important;
+        flex-direction: column !important;
+
+        flex: 0 0 auto !important;
+        min-width: 0 !important;
+      }
+
+      #states__state:nth-child(2) {
+        align-items: flex-end !important;
+        text-align: right !important;
+        margin-left: auto !important;
+      }
+
+      #state__name {
+        order: -1;
+
+        margin-bottom: 5px;
+
+        color:
+          rgba(
+            var(--rgb-primary-text-color),
+            0.82
+          )
+          !important;
+
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        line-height: 13px !important;
+
+        letter-spacing: 0.25px;
+        text-transform: uppercase;
+
+        opacity: 1 !important;
+      }
+
+      #state__value {
+        display: flex !important;
+        align-items: baseline !important;
+
+        white-space: nowrap !important;
+      }
+
+      #states__state:nth-child(2) #state__value {
+        justify-content: flex-end !important;
+      }
+
+      #state {
+        font-size: 30px !important;
+        font-weight: 500 !important;
+        line-height: 32px !important;
+
+        letter-spacing: -0.6px;
+
+        font-variant-numeric: tabular-nums;
+      }
+
+      #uom {
+        margin-left: 4px;
+
+        font-size: 10px !important;
+        font-weight: 500 !important;
+
+        color:
+          rgba(
+            var(--rgb-primary-text-color),
+            0.52
+          )
+          !important;
+
+        opacity: 1 !important;
+      }
