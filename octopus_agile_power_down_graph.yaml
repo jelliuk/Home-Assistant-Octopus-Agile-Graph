@@ -1438,7 +1438,7 @@ card:
     - entity: >-
         sensor.octopus_energy_electricity_your_mpan_your_meter_serial_current_accumulative_consumption
 
-      name: Usage kWh
+      name: Usage
 
       type: line
 
