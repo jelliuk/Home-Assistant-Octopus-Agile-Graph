@@ -1,12 +1,16 @@
 type: custom:config-template-card
 
 entities:
-  # Replace these five entity IDs with your own.
+  # Replace these entity IDs with your own.
   - sensor.octopus_energy_electricity_your_mpan_your_meter_serial_current_rate
   - sensor.octopus_energy_electricity_your_mpan_your_meter_serial_next_rate
   - event.octopus_energy_electricity_your_mpan_your_meter_serial_current_day_rates
   - event.octopus_energy_electricity_your_mpan_your_meter_serial_next_day_rates
-  - event.octopus_energy_your_account_id_octoplus_power_down_events
+  - sensor.octopus_energy_electricity_your_mpan_your_meter_serial_current_accumulative_consumption
+  - calendar.octopus_energy_your_account_id_octoplus_power_down
+  - calendar.octopus_energy_your_account_id_octoplus_saving_sessions
+  - calendar.octopus_energy_your_account_id_octoplus_power_up
+  - calendar.octopus_energy_your_account_id_octoplus_free_electricity_session
 
 variables:
 
@@ -44,7 +48,22 @@ variables:
       ? '#BF5AF2'
       : '#AF52DE'
 
+  APPLE_YELLOW: |
+    this.hass.themes.darkMode
+      ? '#FFD60A'
+      : '#FFCC00'
+
+  APPLE_INDIGO: |
+    this.hass.themes.darkMode
+      ? '#5E5CE6'
+      : '#5856D6'
+
   POWER_DOWN_OPACITY: |
+    this.hass.themes.darkMode
+      ? 0.14
+      : 0.09
+
+  POWER_UP_OPACITY: |
     this.hass.themes.darkMode
       ? 0.14
       : 0.09
@@ -56,20 +75,58 @@ variables:
 
   POWER_DOWN_SESSION: |
     (() => {
-      const entity =
+      const primary =
         states[
-          'event.octopus_energy_your_account_id_octoplus_power_down_events'
+          'calendar.octopus_energy_your_account_id_octoplus_power_down'
         ];
 
-      const joinedEvents =
-        Array.isArray(entity?.attributes?.joined_events)
-          ? entity.attributes.joined_events
-          : [];
+      // Older Octopus Energy integration versions (and accounts not
+      // yet migrated) expose the same information under the legacy
+      // "Saving Sessions" calendar instead.
+      const legacy =
+        states[
+          'calendar.octopus_energy_your_account_id_octoplus_saving_sessions'
+        ];
 
+      const entity =
+        primary !== undefined
+          ? primary
+          : legacy;
+
+      const startRaw =
+        entity?.attributes?.start_time;
+
+      const endRaw =
+        entity?.attributes?.end_time;
+
+      const start =
+        startRaw
+          ? new Date(startRaw).getTime()
+          : NaN;
+
+      const end =
+        endRaw
+          ? new Date(endRaw).getTime()
+          : NaN;
+
+      if (
+        !Number.isFinite(start) ||
+        !Number.isFinite(end)
+      ) {
+        return {
+          visible: false,
+          start: 0,
+          end: 0
+        };
+      }
+
+      // Truncate to midnight, matching the card's
+      // span: { start: day } setting below.
       const graphStartDate =
         new Date();
 
-      graphStartDate.setMinutes(
+      graphStartDate.setHours(
+        0,
         0,
         0,
         0
@@ -82,60 +139,12 @@ variables:
         graphStart +
         (24 * 60 * 60 * 1000);
 
-      const sessions =
-        joinedEvents
-          .map((event) => {
-            const start =
-              new Date(
-                event.start
-              ).getTime();
-
-            let end =
-              new Date(
-                event.end
-              ).getTime();
-
-            if (
-              !Number.isFinite(end) &&
-              Number.isFinite(start)
-            ) {
-              const duration =
-                Number(
-                  event.duration_in_minutes
-                );
-
-              if (
-                Number.isFinite(duration)
-              ) {
-                end =
-                  start +
-                  (
-                    duration *
-                    60 *
-                    1000
-                  );
-              }
-            }
-
-            return {
-              start,
-              end
-            };
-          })
-          .filter((session) =>
-            Number.isFinite(session.start) &&
-            Number.isFinite(session.end)
-          )
-          .filter((session) =>
-            session.end >= graphStart &&
-            session.start <= graphEnd
-          )
-          .sort(
-            (a, b) =>
-              a.start - b.start
-          );
-
-      if (!sessions.length) {
+      // The calendar entity only ever exposes the current or next
+      // session, so there is at most one session to test here.
+      if (
+        end < graphStart ||
+        start > graphEnd
+      ) {
         return {
           visible: false,
           start: 0,
@@ -145,11 +154,101 @@ variables:
 
       return {
         visible: true,
-        start: sessions[0].start,
-        end: sessions[0].end
+        start,
+        end
       };
     })()
 
+
+  # =============================================================
+  # POWER UP SESSION SHOWN ON GRAPH
+  # =============================================================
+
+  POWER_UP_SESSION: |
+    (() => {
+      const primary =
+        states[
+          'calendar.octopus_energy_your_account_id_octoplus_power_up'
+        ];
+
+      // Older Octopus Energy integration versions (and accounts not
+      // yet migrated) expose the same information under the legacy
+      // "Free Electricity Session" calendar instead.
+      const legacy =
+        states[
+          'calendar.octopus_energy_your_account_id_octoplus_free_electricity_session'
+        ];
+
+      const entity =
+        primary !== undefined
+          ? primary
+          : legacy;
+
+      const startRaw =
+        entity?.attributes?.start_time;
+
+      const endRaw =
+        entity?.attributes?.end_time;
+
+      const start =
+        startRaw
+          ? new Date(startRaw).getTime()
+          : NaN;
+
+      const end =
+        endRaw
+          ? new Date(endRaw).getTime()
+          : NaN;
+
+      if (
+        !Number.isFinite(start) ||
+        !Number.isFinite(end)
+      ) {
+        return {
+          visible: false,
+          start: 0,
+          end: 0
+        };
+      }
+
+      // Truncate to midnight, matching the card's
+      // span: { start: day } setting below.
+      const graphStartDate =
+        new Date();
+
+      graphStartDate.setHours(
+        0,
+        0,
+        0,
+        0
+      );
+
+      const graphStart =
+        graphStartDate.getTime();
+
+      const graphEnd =
+        graphStart +
+        (24 * 60 * 60 * 1000);
+
+      // The calendar entity only ever exposes the current or next
+      // session, so there is at most one session to test here.
+      if (
+        end < graphStart ||
+        start > graphEnd
+      ) {
+        return {
+          visible: false,
+          start: 0,
+          end: 0
+        };
+      }
+
+      return {
+        visible: true,
+        start,
+        end
+      };
+    })()
 
   # =============================================================
   # IS POWER DOWN ACTIVE RIGHT NOW?
@@ -157,59 +256,51 @@ variables:
 
   POWER_DOWN_ACTIVE: |
     (() => {
-      const entity =
+      const primary =
         states[
-          'event.octopus_energy_your_account_id_octoplus_power_down_events'
+          'calendar.octopus_energy_your_account_id_octoplus_power_down'
         ];
 
-      const joinedEvents =
-        Array.isArray(entity?.attributes?.joined_events)
-          ? entity.attributes.joined_events
-          : [];
+      const legacy =
+        states[
+          'calendar.octopus_energy_your_account_id_octoplus_saving_sessions'
+        ];
 
-      const now =
-        Date.now();
+      const entity =
+        primary !== undefined
+          ? primary
+          : legacy;
 
-      return joinedEvents.some((event) => {
-        const start =
-          new Date(
-            event.start
-          ).getTime();
+      // The calendar entity's state is 'on' whenever a joined
+      // Power Down session is currently in progress.
+      return entity?.state === 'on';
+    })()
 
-        let end =
-          new Date(
-            event.end
-          ).getTime();
 
-        if (
-          !Number.isFinite(end) &&
-          Number.isFinite(start)
-        ) {
-          const duration =
-            Number(
-              event.duration_in_minutes
-            );
+  # =============================================================
+  # IS POWER UP ACTIVE RIGHT NOW?
+  # =============================================================
 
-          if (
-            Number.isFinite(duration)
-          ) {
-            end =
-              start +
-              (
-                duration *
-                60 *
-                1000
-              );
-          }
-        }
+  POWER_UP_ACTIVE: |
+    (() => {
+      const primary =
+        states[
+          'calendar.octopus_energy_your_account_id_octoplus_power_up'
+        ];
 
-        return (
-          Number.isFinite(start) &&
-          Number.isFinite(end) &&
-          now >= start &&
-          now < end
-        );
-      });
+      const legacy =
+        states[
+          'calendar.octopus_energy_your_account_id_octoplus_free_electricity_session'
+        ];
+
+      const entity =
+        primary !== undefined
+          ? primary
+          : legacy;
+
+      // The calendar entity's state is 'on' whenever a joined
+      // Power Up session is currently in progress.
+      return entity?.state === 'on';
     })()
 
 
@@ -219,15 +310,43 @@ variables:
 
   NEXT_POWER_DOWN: |
     (() => {
-      const entity =
+      const primary =
         states[
-          'event.octopus_energy_your_account_id_octoplus_power_down_events'
+          'calendar.octopus_energy_your_account_id_octoplus_power_down'
         ];
 
-      const joinedEvents =
-        Array.isArray(entity?.attributes?.joined_events)
-          ? entity.attributes.joined_events
-          : [];
+      const legacy =
+        states[
+          'calendar.octopus_energy_your_account_id_octoplus_saving_sessions'
+        ];
+
+      const entity =
+        primary !== undefined
+          ? primary
+          : legacy;
+
+      const startRaw =
+        entity?.attributes?.start_time;
+
+      const endRaw =
+        entity?.attributes?.end_time;
+
+      const sessionStart =
+        startRaw
+          ? new Date(startRaw).getTime()
+          : NaN;
+
+      const sessionEnd =
+        endRaw
+          ? new Date(endRaw).getTime()
+          : NaN;
+
+      if (
+        !Number.isFinite(sessionStart) ||
+        !Number.isFinite(sessionEnd)
+      ) {
+        return false;
+      }
 
       const slotLength =
         30 * 60 * 1000;
@@ -242,51 +361,119 @@ variables:
       const nextEnd =
         nextStart + slotLength;
 
-      return joinedEvents.some((event) => {
-        const sessionStart =
-          new Date(
-            event.start
-          ).getTime();
+      return (
+        nextStart < sessionEnd &&
+        nextEnd > sessionStart
+      );
+    })()
 
-        let sessionEnd =
-          new Date(
-            event.end
-          ).getTime();
 
-        if (
-          !Number.isFinite(sessionEnd) &&
-          Number.isFinite(sessionStart)
-        ) {
-          const duration =
-            Number(
-              event.duration_in_minutes
-            );
+  # =============================================================
+  # IS THE NEXT HALF-HOUR SLOT INSIDE POWER UP?
+  # =============================================================
 
-          if (
-            Number.isFinite(duration)
-          ) {
-            sessionEnd =
-              sessionStart +
-              (
-                duration *
-                60 *
-                1000
-              );
-          }
-        }
+  NEXT_POWER_UP: |
+    (() => {
+      const primary =
+        states[
+          'calendar.octopus_energy_your_account_id_octoplus_power_up'
+        ];
 
-        if (
-          !Number.isFinite(sessionStart) ||
-          !Number.isFinite(sessionEnd)
-        ) {
-          return false;
-        }
+      const legacy =
+        states[
+          'calendar.octopus_energy_your_account_id_octoplus_free_electricity_session'
+        ];
 
-        return (
-          nextStart < sessionEnd &&
-          nextEnd > sessionStart
-        );
-      });
+      const entity =
+        primary !== undefined
+          ? primary
+          : legacy;
+
+      const startRaw =
+        entity?.attributes?.start_time;
+
+      const endRaw =
+        entity?.attributes?.end_time;
+
+      const sessionStart =
+        startRaw
+          ? new Date(startRaw).getTime()
+          : NaN;
+
+      const sessionEnd =
+        endRaw
+          ? new Date(endRaw).getTime()
+          : NaN;
+
+      if (
+        !Number.isFinite(sessionStart) ||
+        !Number.isFinite(sessionEnd)
+      ) {
+        return false;
+      }
+
+      const slotLength =
+        30 * 60 * 1000;
+
+      const nextStart =
+        (
+          Math.floor(
+            Date.now() / slotLength
+          ) + 1
+        ) * slotLength;
+
+      const nextEnd =
+        nextStart + slotLength;
+
+      return (
+        nextStart < sessionEnd &&
+        nextEnd > sessionStart
+      );
+    })()
+
+
+  # =============================================================
+  # DYNAMIC CONSUMPTION AXIS MAX
+  # =============================================================
+
+  CONSUMPTION_MAX: |
+    (() => {
+      const entity =
+        states[
+          'sensor.octopus_energy_electricity_your_mpan_your_meter_serial_current_accumulative_consumption'
+        ];
+
+      const charges =
+        Array.isArray(entity?.attributes?.charges)
+          ? entity.attributes.charges
+          : [];
+
+      const values =
+        charges
+          .map((entry) =>
+            Number(entry.consumption)
+          )
+          .filter((value) =>
+            Number.isFinite(value)
+          );
+
+      const peak =
+        values.length
+          ? Math.max(...values)
+          : 0;
+
+      // A floor so a very quiet day doesn't zoom the axis in so
+      // far that normal noise looks dramatic, and some headroom
+      // above the peak so the line doesn't touch the top of the
+      // chart. Tune these two numbers to taste.
+      const AXIS_FLOOR_KWH = 1;
+
+      const HEADROOM_MULTIPLIER = 1.2;
+
+      return Math.max(
+        AXIS_FLOOR_KWH,
+        peak * HEADROOM_MULTIPLIER
+      );
     })()
 
 
@@ -701,65 +888,48 @@ variables:
           }
         );
 
-      const powerDownEntity =
+      const powerDownPrimary =
         states[
-          'event.octopus_energy_your_account_id_octoplus_power_down_events'
+          'calendar.octopus_energy_your_account_id_octoplus_power_down'
         ];
 
-      const joinedEvents =
-        Array.isArray(
-          powerDownEntity?.attributes?.joined_events
-        )
-          ? powerDownEntity.attributes.joined_events
-          : [];
+      const powerDownLegacy =
+        states[
+          'calendar.octopus_energy_your_account_id_octoplus_saving_sessions'
+        ];
 
-      const now =
-        Date.now();
+      const powerDownEntity =
+        powerDownPrimary !== undefined
+          ? powerDownPrimary
+          : powerDownLegacy;
 
       const powerDownActive =
-        joinedEvents.some((event) => {
-          const start =
-            new Date(
-              event.start
-            ).getTime();
+        powerDownEntity?.state === 'on';
 
-          let end =
-            new Date(
-              event.end
-            ).getTime();
+      const powerUpPrimary =
+        states[
+          'calendar.octopus_energy_your_account_id_octoplus_power_up'
+        ];
 
-          if (
-            !Number.isFinite(end) &&
-            Number.isFinite(start)
-          ) {
-            const duration =
-              Number(
-                event.duration_in_minutes
-              );
+      const powerUpLegacy =
+        states[
+          'calendar.octopus_energy_your_account_id_octoplus_free_electricity_session'
+        ];
 
-            if (
-              Number.isFinite(duration)
-            ) {
-              end =
-                start +
-                (
-                  duration *
-                  60 *
-                  1000
-                );
-            }
-          }
+      const powerUpEntity =
+        powerUpPrimary !== undefined
+          ? powerUpPrimary
+          : powerUpLegacy;
 
-          return (
-            Number.isFinite(start) &&
-            Number.isFinite(end) &&
-            now >= start &&
-            now < end
-          );
-        });
+      const powerUpActive =
+        powerUpEntity?.state === 'on';
 
       if (powerDownActive) {
         return 'NOW · ' + currentTime + ' · POWER DOWN';
+      }
+
+      if (powerUpActive) {
+        return 'NOW · ' + currentTime + ' · POWER UP';
       }
 
       if (price <= 0) {
@@ -833,7 +1003,7 @@ card:
   graph_span: 24h
 
   span:
-    start: hour
+    start: day
 
   experimental:
     color_threshold: true
@@ -845,7 +1015,8 @@ card:
     standard_format: false
 
   yaxis:
-    - min: auto
+    - id: price
+      min: auto
       max: '|+3|'
       decimals: 0
 
@@ -856,6 +1027,32 @@ card:
           formatter: |
             EVAL:function(value) {
               return Math.round(value) + 'p';
+            }
+
+    - id: consumption
+      opposite: true
+      decimals: 1
+
+      # A fixed (not soft/auto) number is used deliberately here.
+      # apexcharts-card has a known issue where auto/soft-bound
+      # scaling on a second y-axis can pick up the range from the
+      # first axis instead of its own data when the chart also has
+      # header-only (in_chart: false) series - which this card does.
+      # CONSUMPTION_MAX is computed once, up front, from today's
+      # actual peak half-hour reading (see the variables section),
+      # so the axis still adapts day-to-day without going through
+      # that buggy calculation - a quiet day zooms in for detail,
+      # while a 7 kWh spike day automatically gets more headroom.
+      min: 0
+      max: ${CONSUMPTION_MAX}
+
+      apex_config:
+        tickAmount: 4
+
+        labels:
+          formatter: |
+            EVAL:function(value) {
+              return value.toFixed(1) + ' kWh';
             }
 
   series:
@@ -869,10 +1066,12 @@ card:
 
       float_precision: 2
 
+      yaxis_id: price
+
       transform: |
         return Number(x) * 100;
 
-      color: "${POWER_DOWN_ACTIVE ? APPLE_PURPLE : CURRENT_COLOR}"
+      color: "${POWER_DOWN_ACTIVE ? APPLE_PURPLE : (POWER_UP_ACTIVE ? APPLE_YELLOW : CURRENT_COLOR)}"
 
       show:
         in_header: true
@@ -885,16 +1084,18 @@ card:
     # Next rate - header only
     - entity: sensor.octopus_energy_electricity_your_mpan_your_meter_serial_next_rate
 
-      name: "${NEXT_POWER_DOWN ? 'NEXT · ' + NEXT_TIME + ' · POWER DOWN' : 'NEXT · ' + NEXT_TIME}"
+      name: "${NEXT_POWER_DOWN ? 'NEXT · ' + NEXT_TIME + ' · POWER DOWN' : (NEXT_POWER_UP ? 'NEXT · ' + NEXT_TIME + ' · POWER UP' : 'NEXT · ' + NEXT_TIME)}"
 
       unit: p/kWh
 
       float_precision: 2
 
+      yaxis_id: price
+
       transform: |
         return Number(x) * 100;
 
-      color: "${NEXT_POWER_DOWN ? APPLE_PURPLE : NEXT_COLOR}"
+      color: "${NEXT_POWER_DOWN ? APPLE_PURPLE : (NEXT_POWER_UP ? APPLE_YELLOW : NEXT_COLOR)}"
 
       show:
         in_header: true
@@ -921,6 +1122,8 @@ card:
       stroke_width: 0
 
       extend_to: false
+
+      yaxis_id: price
 
       show:
         in_header: false
@@ -1079,6 +1282,8 @@ card:
 
       extend_to: false
 
+      yaxis_id: price
+
       show:
         in_header: false
         in_legend: false
@@ -1160,6 +1365,8 @@ card:
 
       extend_to: false
 
+      yaxis_id: price
+
       show:
         in_header: false
         in_legend: false
@@ -1227,6 +1434,104 @@ card:
           color: ${APPLE_RED}
 
 
+    # Today's cumulative consumption - secondary axis
+    - entity: >-
+        sensor.octopus_energy_electricity_your_mpan_your_meter_serial_current_accumulative_consumption
+
+      name: Usage kWh
+
+      type: line
+
+      float_precision: 1
+
+      yaxis_id: consumption
+
+      stroke_width: 2
+
+      color: ${APPLE_INDIGO}
+
+      extend_to: now
+
+      show:
+        # "before_now" (rather than plain true) is required because
+        # this series' data spans into the future (see the
+        # data_generator below) - it tells apexcharts-card to use
+        # the value at/just before the current time for the header,
+        # instead of literally the last array entry, which would
+        # often be one of the null future slots and show "N/A".
+        in_header: before_now
+        in_legend: false
+        legend_value: false
+        datalabels: false
+
+      data_generator: |
+        const charges =
+          Array.isArray(
+            entity.attributes.charges
+          )
+            ? entity.attributes.charges
+            : [];
+
+        const consumptionByTime = new Map();
+
+        charges.forEach((entry) => {
+          const time =
+            new Date(entry.start).getTime();
+
+          const value =
+            Number(entry.consumption);
+
+          if (
+            Number.isFinite(time) &&
+            Number.isFinite(value)
+          ) {
+            consumptionByTime.set(time, value);
+          }
+        });
+
+        // Build a full half-hourly scaffold for today (48 slots)
+        // instead of only returning the handful of slots we
+        // actually have readings for. ApexCharts' shared tooltip
+        // matches values across series by array position, and
+        // requires every series to share the same x-values to work
+        // reliably - the price series (below) also has 48 slots for
+        // today, so lining these up exactly, index for index, is
+        // what keeps the tooltip from breaking when hovering over
+        // this line. Slots with no reading yet (typically anything
+        // from "now" onwards) are left as null - extend_to: now
+        // (below) then draws the visible line up to the current
+        // time using the last real reading, exactly as before.
+        const slotLength = 30 * 60 * 1000;
+
+        const dayStart = new Date();
+
+        dayStart.setHours(
+          0,
+          0,
+          0,
+          0
+        );
+
+        const dayStartTime =
+          dayStart.getTime();
+
+        const points = [];
+
+        for (let i = 0; i < 48; i++) {
+          const time =
+            dayStartTime +
+            (i * slotLength);
+
+          points.push([
+            time,
+            consumptionByTime.has(time)
+              ? consumptionByTime.get(time)
+              : null
+          ]);
+        }
+
+        return points;
+
   apex_config:
 
     chart:
@@ -1283,8 +1588,13 @@ card:
         enabled: false
 
     tooltip:
+      # Which series show a value row in the tooltip. The three
+      # price series are numbered below;
       enabledOnSeries:
-        - 0
+        - 0 # Price area
+        - 1 # Current-day price line
+        - 2 # Next-day price line
+        - 3 # Usage kWh
 
       marker:
         show: false
@@ -1324,6 +1634,37 @@ card:
         # Power Down end boundary
         - x: ${POWER_DOWN_SESSION.end}
           borderColor: ${APPLE_PURPLE}
+          strokeDashArray: 0
+
+        # Power Up window
+        - x: ${POWER_UP_SESSION.start}
+          x2: ${POWER_UP_SESSION.end}
+
+          borderColor: ${APPLE_YELLOW}
+          fillColor: ${APPLE_YELLOW}
+          opacity: ${POWER_UP_OPACITY}
+
+          label:
+            text: "${POWER_UP_SESSION.visible ? 'POWER UP' : ''}"
+            orientation: horizontal
+            position: top
+            offsetY: -26
+            borderColor: ${APPLE_YELLOW}
+
+            style:
+              background: ${APPLE_YELLOW}
+              color: '#000000'
+              fontSize: 9px
+              fontWeight: 600
+
+        # Power Up start boundary
+        - x: ${POWER_UP_SESSION.start}
+          borderColor: ${APPLE_YELLOW}
+          strokeDashArray: 0
+
+        # Power Up end boundary
+        - x: ${POWER_UP_SESSION.end}
+          borderColor: ${APPLE_YELLOW}
           strokeDashArray: 0
 
         # Current time marker
